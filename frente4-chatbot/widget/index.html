@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Chat - Albergue São Vicente</title>
+  <style>
+    /* Botão flutuante */
+    #chat-toggle {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: #1a73e8;
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+    }
+
+    #chat-toggle svg {
+      width: 28px;
+      height: 28px;
+      fill: white;
+    }
+
+    /* Janela de chat */
+    #chat-window {
+      position: fixed;
+      bottom: 90px;
+      right: 24px;
+      width: 350px;
+      height: 480px;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 998;
+    }
+
+    #chat-window.aberto {
+      display: flex;
+    }
+
+    /* Header */
+    .chat-header {
+      background: #1a73e8;
+      color: white;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .chat-header-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .chat-header-info { flex: 1; }
+    .chat-header-name { font-weight: 600; font-size: 14px; }
+    .chat-header-status { font-size: 11px; opacity: 0.85; }
+
+    /* Mensagens */
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .msg {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+    }
+
+    .msg.user { flex-direction: row-reverse; }
+
+    .bubble {
+      max-width: 75%;
+      padding: 8px 12px;
+      border-radius: 14px;
+      font-size: 20px;
+      line-height: 1.5;
+    }
+
+    .msg.bot .bubble {
+      background: #f1f3f4;
+      color: #202124;
+      border-bottom-left-radius: 4px;
+    }
+
+    .msg.user .bubble {
+      background: #1a73e8;
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+
+    .avatar {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      font-size: 10px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .bot .avatar { background: #e8f0fe; color: #1a73e8; }
+    .user .avatar { background: #1a73e8; color: white; }
+
+    /* Digitando */
+    .typing span {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #999;
+      margin: 0 2px;
+      animation: blink 1.3s infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.2s; }
+    .typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes blink { 0%,80%,100%{opacity:0.2} 40%{opacity:1} }
+
+    /* Input */
+    .chat-input {
+      padding: 10px 12px;
+      border-top: 1px solid #e8eaed;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .chat-input textarea {
+      flex: 1;
+      padding: 8px 12px;
+      border-radius: 20px;
+      border: 1px solid #dadce0;
+      font-size: 20px;
+      resize: none;
+      height: 36px;
+      font-family: inherit;
+      outline: none;
+    }
+
+    .chat-input textarea:focus { border-color: #1a73e8; }
+
+    .chat-input button {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: #1a73e8;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .chat-input button:disabled { background: #ccc; cursor: not-allowed; }
+
+    .chat-input button svg {
+      width: 16px;
+      height: 16px;
+      fill: white;
+    }
+
+    .human-btn {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 11px;
+      color: #1a73e8;
+      border: 1px solid #1a73e8;
+      border-radius: 14px;
+      padding: 3px 9px;
+      cursor: pointer;
+      background: transparent;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Botão flutuante -->
+<button id="chat-toggle">
+  <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+</button>
+
+<!-- Janela de chat -->
+<div id="chat-window">
+  <div class="chat-header">
+    <div class="chat-header-avatar">SV</div>
+    <div class="chat-header-info">
+      <div class="chat-header-name">Albergue São Vicente</div>
+      <div class="chat-header-status">Atendente virtual</div>
+    </div>
+  </div>
+
+  <div class="chat-messages" id="messages"></div>
+
+  <div class="chat-input">
+    <textarea id="userInput" placeholder="Digite uma mensagem..."></textarea>
+    <button id="sendBtn">
+      <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+  const BACKEND_URL = "http://localhost:8000/chat";
+
+  // Gera ou recupera session_id
+  let sessionId = localStorage.getItem("session_id");
+  if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    localStorage.setItem("session_id", sessionId);
+  }
+
+  const toggle = document.getElementById("chat-toggle");
+  const window_ = document.getElementById("chat-window");
+  const messages = document.getElementById("messages");
+  const userInput = document.getElementById("userInput");
+  const sendBtn = document.getElementById("sendBtn");
+
+  // Abre/fecha o chat
+  toggle.onclick = () => {
+    window_.classList.toggle("aberto");
+    if (window_.classList.contains("aberto") && messages.children.length === 0) {
+      addMsg("bot", "Olá! Sou o atendente virtual do Albergue São Vicente de Paula. 😊 Como posso ajudar?");
+    }
+  };
+
+  function addMsg(role, text) {
+    const div = document.createElement("div");
+    div.className = "msg " + role;
+
+    const av = document.createElement("div");
+    av.className = "avatar";
+    av.textContent = role === "bot" ? "SV" : "Eu";
+
+    const bub = document.createElement("div");
+    bub.className = "bubble";
+    bub.textContent = text;
+
+    if (role === "bot") {
+      const btn = document.createElement("button");
+      btn.className = "human-btn";
+      btn.textContent = "👤 Falar com pessoa real";
+      btn.onclick = () => addMsg("bot", "Entendido! Em breve alguém da equipe entrará em contato. 🙏");
+      bub.appendChild(document.createElement("br"));
+      bub.appendChild(btn);
+    }
+
+    div.appendChild(av);
+    div.appendChild(bub);
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function addTyping() {
+    const div = document.createElement("div");
+    div.className = "msg bot";
+    div.id = "typing";
+    div.innerHTML = '<div class="avatar">SV</div><div class="bubble"><span class="typing"><span></span><span></span><span></span></span></div>';
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function removeTyping() {
+    const t = document.getElementById("typing");
+    if (t) t.remove();
+  }
+
+  async function send() {
+    const text = userInput.value.trim();
+    if (!text) return;
+
+    userInput.value = "";
+    sendBtn.disabled = true;
+    addMsg("user", text);
+    addTyping();
+
+    try {
+      const res = await fetch(BACKEND_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, texto: text })
+      });
+
+      const data = await res.json();
+      removeTyping();
+      addMsg("bot", data.resposta);
+    } catch (e) {
+      removeTyping();
+      addMsg("bot", "Erro de conexão. Tente novamente.");
+    }
+
+    sendBtn.disabled = false;
+    userInput.focus();
+  }
+
+  sendBtn.onclick = send;
+  userInput.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+</script>
+
+</body>
+</html>

@@ -9,10 +9,11 @@ load_dotenv()
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-#FastAPI é um framework que torna possível fazer re
+
 app = FastAPI()
 
-#isso libera a requisição de endereços diferentes , já que possuem frentes diferentes e os domínios também serão diferentes.
+
+#libera a requisição de endereços diferentes, já que possuem frentes diferentes e os domínios também serão diferentes.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,7 +36,7 @@ Você pode ajudar com:
 Pix, endereço e telefone serão preenchidos quando a equipe confirmar."""
 
 
-#isso anexa na variável "model" qual api será usada e qual a instrução ele terá.
+# Seleciona qual modelo de de api será usado e qual instrução ele deve seguir.
 model = genai.GenerativeModel(
     model_name="gemini-2.5-flash",
     system_instruction=SYSTEM_PROMPT
@@ -44,14 +45,15 @@ model = genai.GenerativeModel(
 historicos = {} 
 
 
-#cria uma classe para que se a requisição não tenha um ''session_id'' e "texto" a requisição seja negada.Pois essa informaçôes são importantes para cada um ter uma sessão e consequentemente histórico.
+# Valida a estrutura dos dados. Se a requisição não contiver 'session_id' ou 'texto', ela é negada automaticamente.
 class Mensagem(BaseModel):
     session_id: str
     texto: str
 
 
 
-#isso cria uma condicional para que seja criado um histórico caso o usuário não tenha um histórico de conversa com o chatbot.
+# Verifica se este usuário (identificado pelo session_id) já tem uma conversa aberta.
+# Se for uma conversa nova, cria um histórico vazio associado a esse ID no dicionário.
 @app.post("/chat")
 async def chat(msg: Mensagem):
     if msg.session_id not in historicos:
@@ -63,7 +65,8 @@ async def chat(msg: Mensagem):
     return {"resposta": resposta.text}
 
 
-#isso apenas cria uma mensagem para caso a requisição tenha dado certo e o servidor e a conexão está funcionando.
+
+# Verifica se o servidor está online e se a conexão está funcionando corretamente
 @app.get("/")
 async def root():
     return {"status": "ok", "servico": "Chatbot Albergue São Vicente"}
