@@ -3,17 +3,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import google.generativeai as genai
+from supabase import create_client
 import os
 
 load_dotenv()
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
+# Conecta no Supabase
+supabase = create_client(
+    os.getenv("SUPABASE_URL"),
+    os.getenv("SUPABASE_KEY")
+)
 
 app = FastAPI()
 
-
-#libera a requisição de endereços diferentes, já que possuem frentes diferentes e os domínios também serão diferentes.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,41 +25,80 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-#aqui definimos a instrução inicial para o gemini ter contexto de como agir.
-SYSTEM_PROMPT = """Você é o atendente virtual do Albergue São Vicente de Paula, em Jataí (GO).
+SYSTEM_PROMPT_BASE = """Você é o atendente virtual do Albergue São Vicente de Paula, em Jataí (GO).
 Seu tom é acolhedor, simples e paciente.
 Responda de forma curta e clara, no máximo 3 parágrafos.
-Nunca invente informações. Se não souber, diga que vai verificar com a equipe.
 
-Você pode ajudar com:
-- Informações sobre o Albergue
-- Como fazer doações (dinheiro ou itens)
-- Itens mais necessários: fraldas geriátricas, roupas GG/EG, alimentos não-perecíveis, higiene pessoal
-- Como visitar ou se voluntariar
+IMPORTANTE: As informações abaixo são OFICIAIS e CONFIÁVEIS do Albergue. Use-as diretamente nas respostas sem hesitar.
 
-Pix, endereço e telefone serão preenchidos quando a equipe confirmar."""
+{faqs}
+{estoque}
 
+Se a pergunta não estiver coberta pelas informações acima, aí sim diga que vai verificar com a equipe."""
 
-# Seleciona qual modelo de de api será usado e qual instrução ele deve seguir.
-model = genai.GenerativeModel(
-    model_name="gemini-2.5-flash",
-    system_instruction=SYSTEM_PROMPT
-)
+historicos = {}
 
-historicos = {} 
-
-
-# Valida a estrutura dos dados. Se a requisição não contiver 'session_id' ou 'texto', ela é negada automaticamente.
 class Mensagem(BaseModel):
     session_id: str
     texto: str
 
 
 
-# Verifica se este usuário (identificado pelo session_id) já tem uma conversa aberta.
-# Se for uma conversa nova, cria um histórico vazio associado a esse ID no dicionário.
+#declaração de uma função que busca no banco de dados informações relacionado a FAQS.
+def buscar_faqs():
+    try:
+        resultado = supabase.table("faqs").select("pergunta, resposta").eq("ativo", True).execute()
+        faqs = resultado.data
+        
+        if not faqs:
+            return "Nenhuma informação disponível no momento."
+        
+        texto = ""
+        for faq in faqs:
+            texto += f"P: {faq['pergunta']}\nR: {faq['resposta']}\n\n"
+        return texto
+    except Exception as e:
+        print(f"Erro ao buscar FAQs: {e}")
+        return "Nenhuma informação disponível no momento."
+
+
+#declaração de uma função que realiza busca de informações a respeito de estoque no banco de dados.
+def buscar_estoque():
+    try:
+        resultado = supabase.table("view_estoque_atual").select("item, categoria, quantidade_atual, unidade_medida").execute()
+        print("Estoque encontrado:", resultado.data)
+        itens = resultado.data
+        if not itens:
+            return "Informações de estoque não disponíveis no momento."
+        
+        texto = "Estoque atual do Albergue:\n"
+        for item in itens:
+            quantidade = item['quantidade_atual']
+            if quantidade is None:
+                quantidade = "não informado"
+            texto += f"- {item['item']} ({item['categoria']}): {quantidade} {item['unidade_medida']}\n"
+        return texto
+    except Exception as e:
+        print(f"Erro ao buscar estoque: {e}")
+        return "Informações de estoque não disponíveis no momento."
+
+
 @app.post("/chat")
 async def chat(msg: Mensagem):
+    # Busca FAQs do banco
+    faqs = buscar_faqs()
+    estoque = buscar_estoque()
+
+    
+    # Monta o system prompt com as FAQs
+    system_prompt = SYSTEM_PROMPT_BASE.format(faqs=faqs, estoque=estoque)
+    
+    # Cria ou atualiza o modelo com o prompt atualizado
+    model = genai.GenerativeModel(
+        model_name="gemini-2.5-flash",
+        system_instruction=system_prompt
+    )
+    
     if msg.session_id not in historicos:
         historicos[msg.session_id] = model.start_chat(history=[])
     
@@ -64,9 +107,6 @@ async def chat(msg: Mensagem):
     
     return {"resposta": resposta.text}
 
-
-
-# Verifica se o servidor está online e se a conexão está funcionando corretamente
 @app.get("/")
 async def root():
     return {"status": "ok", "servico": "Chatbot Albergue São Vicente"}
