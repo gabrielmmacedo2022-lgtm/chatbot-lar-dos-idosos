@@ -6,9 +6,15 @@ import google.generativeai as genai
 from supabase import create_client
 import os
 
+import httpx
+
 load_dotenv()
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+# Configurações do WhatsApp
+WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
+PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 
 # Conecta no Supabase
 supabase = create_client(
@@ -54,9 +60,6 @@ class Mensagem(BaseModel):
     session_id: str
     texto: str
 
-
-
-#declaração de uma função que busca no banco de dados informações relacionado a FAQS.
 def buscar_faqs():
     try:
         resultado = supabase.table("faqs").select("pergunta, resposta").eq("ativo", True).execute()
@@ -73,12 +76,9 @@ def buscar_faqs():
         print(f"Erro ao buscar FAQs: {e}")
         return "Nenhuma informação disponível no momento."
 
-
-#declaração de uma função que realiza busca de informações a respeito de estoque no banco de dados.
 def buscar_estoque():
     try:
         resultado = supabase.table("view_estoque_atual").select("item, categoria, quantidade_atual, unidade_medida").execute()
-        print("Estoque encontrado:", resultado.data)
         itens = resultado.data
         if not itens:
             return "Informações de estoque não disponíveis no momento."
@@ -94,86 +94,90 @@ def buscar_estoque():
         print(f"Erro ao buscar estoque: {e}")
         return "Informações de estoque não disponíveis no momento."
 
+async def enviar_mensagem_whatsapp(numero, texto):
+    """Envia a resposta de volta para o usuário via API do WhatsApp Cloud."""
+    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": numero,
+        "type": "text",
+        "text": {"body": texto}
+    }
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            print(f"Erro ao enviar mensagem para WhatsApp: {e}")
+            return None
 
-@app.post("/chat")
-async def chat(msg: Mensagem):
-    # Busca FAQs do banco
+def obter_resposta_gemini(session_id, texto_usuario):
+    # Busca dados atualizados para o prompt
     faqs = buscar_faqs()
     estoque = buscar_estoque()
-
     
-    # Monta o system prompt com as FAQs
-    system_prompt = SYSTEM_PROMPT_BASE.format(documento= DADOS_INSTITUCIONAIS,faqs=faqs, estoque=estoque)
+    system_prompt = SYSTEM_PROMPT_BASE.format(
+        documento=DADOS_INSTITUCIONAIS, 
+        faqs=faqs, 
+        estoque=estoque
+    )
     
-    # Cria ou atualiza o modelo com o prompt atualizado
+    
     model = genai.GenerativeModel(
         model_name="gemini-2.5-flash",
         system_instruction=system_prompt
     )
     
-    if msg.session_id not in historicos:
-        historicos[msg.session_id] = model.start_chat(history=[])
-    
-    chat_session = historicos[msg.session_id]
-    resposta = chat_session.send_message(msg.texto)
-    
-    return {"resposta": resposta.text}
+    if session_id not in historicos:
+        historicos[session_id] = model.start_chat(history=[])
+        
+    chat_session = historicos[session_id]
+    resposta = chat_session.send_message(texto_usuario)
+    return resposta.text
+
+@app.post("/chat")
+async def chat(msg: Mensagem):
+    try:
+        resposta = obter_resposta_gemini(msg.session_id, msg.texto)
+        return {"resposta": resposta}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/")
 async def root():
     return {"status": "ok", "servico": "Chatbot Albergue São Vicente"}
 
-
 @app.post("/webhook-whatsapp-teste")
 async def webhook_whatsapp_teste(request: Request):
-    """
-    Rota para receber as mensagens enviadas para o número de teste da Meta.
-    Usa a mesma lógica de banco e IA, mantendo o histórico pelo número de telefone.
-    """
     try:
         dados = await request.json()
         
-        # Estrutura padrão que a Meta envia quando alguém manda mensagem de texto
         if "entry" in dados and dados["entry"]:
             changes = dados["entry"][0].get("changes", [])
             if changes:
                 value = changes[0].get("value", {})
                 if "messages" in value and value["messages"]:
                     mensagem = value["messages"][0]
-                    
                     numero_usuario = mensagem.get("from")
                     
-                    # Garante que é uma mensagem de texto antes de ler o conteúdo
                     if mensagem.get("type") == "text":
                         texto_usuario = mensagem.get("text", {}).get("body")
                         
-                        faqs = buscar_faqs()
-                        estoque = buscar_estoque()
+                        # Gera resposta via Gemini
+                        resposta_gemini = obter_resposta_gemini(numero_usuario, texto_usuario)
                         
-                        system_prompt = SYSTEM_PROMPT_BASE.format(
-                            documento=DADOS_INSTITUCIONAIS, 
-                            faqs=faqs, 
-                            estoque=estoque
-                        )
+                        # ENVIA DE VOLTA PARA O WHATSAPP
+                        await enviar_mensagem_whatsapp(numero_usuario, resposta_gemini)
                         
-                        model = genai.GenerativeModel(
-                            model_name="gemini-2.5-flash",
-                            system_instruction=system_prompt
-                        )
+                        print(f"\n[META WPP] Mensagem de {numero_usuario}: {texto_usuario}")
+                        print(f"[META WPP] Resposta enviada:\n{resposta_gemini}\n")
                         
-                        # O número de telefone vira o session_id exclusivo daquela pessoa
-                        if numero_usuario not in historicos:
-                            historicos[numero_usuario] = model.start_chat(history=[])
-                            
-                        chat_session = historicos[numero_usuario]
-                        resposta_gemini = chat_session.send_message(texto_usuario).text
-                        # ================================
-                        
-                        # Mostra no terminal o resultado do processamento da Meta
-                        print(f"\n[META WPP TESTE] Mensagem de {numero_usuario}: {texto_usuario}")
-                        print(f"[META WPP TESTE] Resposta criada:\n{resposta_gemini}\n")
-                        
-                        return {"status": "sucesso", "mensagem": "Processado com sucesso"}
+                        return {"status": "sucesso"}
                         
     except Exception as e:
         print(f"Erro ao processar dados da Meta: {e}")

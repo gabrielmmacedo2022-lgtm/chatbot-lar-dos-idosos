@@ -19,7 +19,7 @@ Intervalo ao meio-dia: de segunda a segunda
 Visitas fim de semana: 13h às 15:30h
 Entrega de doações: 8h ou 13h às 11h ou 17
 Agendamento: livre
-Restrições de visita: em sutor de viroses as visitas sao suspensas
+Restrições de visita: em surto de viroses as visitas sao suspensas
 
 ── 4. DADOS BANCÁRIOS ──
 Banco: Sicobe
@@ -37,15 +37,15 @@ Outros indicadores: nâo
 
 ── 6. ITENS ACEITOS ──
 Categorias aceitas: alimentos, higiene, roupas, cama, medicamentos, moveis, cadeiras, fraldas
-Não aceita: obejetos que causem riscos aos moradores
+Não aceita: objetos que causem riscos aos moradores
 
 Itens urgentes/necessários:
-  Item 1: frauda — urgente
-  Item 2: shampo e condicionador — normal
+  Item 1: fralda — urgente
+  Item 2: shampoo e condicionador — normal
   Item 3: hidratante — normal
-  Item 4: enxaquante bocal — normal
+  Item 4: enxaguante bucal — normal
   Item 5: meias — normal
-  Item 6: bluasa de frio — normal
+  Item 6: blusa de frio — normal
   Item 7: toalhas — normal
   Item 8: lencol — normal
 
