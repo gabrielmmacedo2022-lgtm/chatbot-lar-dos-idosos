@@ -2,21 +2,21 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
-import google.generativeai as genai
+from groq import Groq
 from supabase import create_client
 import os
-
 import httpx
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# Configura o cliente da Groq usando a chave GROQ_API_KEY do .env
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 # Configurações do WhatsApp
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 
-# Conecta no Supabase
+# Conecta no Supabase (mantido para o estoque)
 supabase = create_client(
     os.getenv("SUPABASE_URL"),
     os.getenv("SUPABASE_KEY")
@@ -31,16 +31,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-#acessa o arquivo "documento.md" e realiza a leitura das informações para maior contextualização do modelo
+# Acessa o arquivo "documento.md" e realiza a leitura para substituir as FAQs do Supabase[cite: 1, 2]
 def carregar_dados_institucionais():
     caminho = "documento.md" 
     if os.path.exists(caminho):
         with open(caminho, "r", encoding="utf-8") as f:
             return f.read()
     return "Informações institucionais não disponíveis."
-
-
-DADOS_INSTITUCIONAIS = carregar_dados_institucionais()
 
 SYSTEM_PROMPT_BASE = """Você é o atendente virtual do Albergue São Vicente de Paula, em Jataí (GO).
 Seu tom é acolhedor, simples e paciente.
@@ -49,7 +46,6 @@ Responda de forma curta e clara, no máximo 3 parágrafos.
 IMPORTANTE: As informações abaixo são OFICIAIS e CONFIÁVEIS do Albergue. Use-as diretamente nas respostas sem hesitar.
 
 {documento}
-{faqs}
 {estoque}
 
 Se a pergunta não estiver coberta pelas informações acima, aí sim diga que vai verificar com a equipe."""
@@ -60,21 +56,9 @@ class Mensagem(BaseModel):
     session_id: str
     texto: str
 
-def buscar_faqs():
-    try:
-        resultado = supabase.table("faqs").select("pergunta, resposta").eq("ativo", True).execute()
-        faqs = resultado.data
-        
-        if not faqs:
-            return "Nenhuma informação disponível no momento."
-        
-        texto = ""
-        for faq in faqs:
-            texto += f"P: {faq['pergunta']}\nR: {faq['resposta']}\n\n"
-        return texto
-    except Exception as e:
-        print(f"Erro ao buscar FAQs: {e}")
-        return "Nenhuma informação disponível no momento."
+# Função de FAQs substituída pela leitura direta do documento.md[cite: 1]
+def buscar_faqs_documento():
+    return carregar_dados_institucionais()
 
 def buscar_estoque():
     try:
@@ -116,34 +100,44 @@ async def enviar_mensagem_whatsapp(numero, texto):
             print(f"Erro ao enviar mensagem para WhatsApp: {e}")
             return None
 
-def obter_resposta_gemini(session_id, texto_usuario):
-    # Busca dados atualizados para o prompt
-    faqs = buscar_faqs()
+def obter_resposta_groq(session_id, texto_usuario):
+    # Busca dados institucionais do documento e o estoque atual do Supabase
+    documento = buscar_faqs_documento()
     estoque = buscar_estoque()
     
     system_prompt = SYSTEM_PROMPT_BASE.format(
-        documento=DADOS_INSTITUCIONAIS, 
-        faqs=faqs, 
+        documento=documento, 
         estoque=estoque
     )
     
-    
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
-        system_instruction=system_prompt
-    )
-    
     if session_id not in historicos:
-        historicos[session_id] = model.start_chat(history=[])
+        historicos[session_id] = [
+            {"role": "system", "content": system_prompt}
+        ]
+    
+    # Atualiza o system prompt caso o documento/estoque mudem, mantendo o histórico de conversas
+    historicos[session_id][0] = {"role": "system", "content": system_prompt}
+    historicos[session_id].append({"role": "user", "content": texto_usuario})
+    
+    try:
+        resposta = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=historicos[session_id],
+            temperature=0.7,
+            max_tokens=800
+        )
         
-    chat_session = historicos[session_id]
-    resposta = chat_session.send_message(texto_usuario)
-    return resposta.text
+        texto_resposta = resposta.choices[0].message.content
+        historicos[session_id].append({"role": "assistant", "content": texto_resposta})
+        return texto_resposta
+    except Exception as e:
+        print(f"Erro na API da Groq: {e}")
+        return "Desculpe, tive um problema ao processar sua mensagem. Tente novamente."
 
 @app.post("/chat")
 async def chat(msg: Mensagem):
     try:
-        resposta = obter_resposta_gemini(msg.session_id, msg.texto)
+        resposta = obter_resposta_groq(msg.session_id, msg.texto)
         return {"resposta": resposta}
     except Exception as e:
         return {"error": str(e)}
@@ -168,14 +162,14 @@ async def webhook_whatsapp_teste(request: Request):
                     if mensagem.get("type") == "text":
                         texto_usuario = mensagem.get("text", {}).get("body")
                         
-                        # Gera resposta via Gemini
-                        resposta_gemini = obter_resposta_gemini(numero_usuario, texto_usuario)
+                        # Gera resposta via Groq
+                        resposta_groq = obter_resposta_groq(numero_usuario, texto_usuario)
                         
                         # ENVIA DE VOLTA PARA O WHATSAPP
-                        await enviar_mensagem_whatsapp(numero_usuario, resposta_gemini)
+                        await enviar_mensagem_whatsapp(numero_usuario, resposta_groq)
                         
                         print(f"\n[META WPP] Mensagem de {numero_usuario}: {texto_usuario}")
-                        print(f"[META WPP] Resposta enviada:\n{resposta_gemini}\n")
+                        print(f"[META WPP] Resposta enviada:\n{resposta_groq}\n")
                         
                         return {"status": "sucesso"}
                         
