@@ -52,7 +52,7 @@ Itens urgentes/necessários:
 ── 7. FAQ ──
 Horário de visitas: 13 as 15:30h todos so dias
 Itens aceitos: Tudo
-Doação em dinheiro: Apenas pelo pix da instituição
+Doação em dinheiro? Apenas pelo pix da instituição, a chave é o email ou o número.
 Voluntariado: sim e sempre muito bem vindo
 Admissão de familiar: o albergue esta cheio no momento
 Acompanhamento médico: pela doação do doutor danilo
